@@ -109,7 +109,7 @@ class SelectorFragment : Fragment() {
 
                 // All cameras *must* support JPEG output so we don't need to check characteristics
                 availableCameras.add(FormatItem(
-                        "$orientation JPEG ($id)", id, ImageFormat.JPEG))
+                        "$orientation NV12 ($id)", id, ImageFormat.YUV_420_888))
 
                 // Return cameras that support RAW capability
                 if (capabilities.contains(
@@ -122,9 +122,9 @@ class SelectorFragment : Fragment() {
                 // Return cameras that support JPEG DEPTH capability
                 if (capabilities.contains(
                             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT) &&
-                        outputFormats.contains(ImageFormat.DEPTH_JPEG)) {
+                        outputFormats.contains(ImageFormat.YUV_420_888)) {
                     availableCameras.add(FormatItem(
-                            "$orientation DEPTH ($id)", id, ImageFormat.DEPTH_JPEG))
+                            "$orientation DEPTH ($id)", id, ImageFormat.YUV_420_888))
                 }
             }
 

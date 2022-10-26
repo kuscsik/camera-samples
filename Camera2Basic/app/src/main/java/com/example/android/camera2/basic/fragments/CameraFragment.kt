@@ -30,6 +30,7 @@ import android.hardware.camera2.DngCreator
 import android.hardware.camera2.TotalCaptureResult
 import android.media.Image
 import android.media.ImageReader
+import android.media.ImageReader.OnImageAvailableListener
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -100,6 +101,8 @@ class CameraFragment : Fragment() {
     /** Readers used as buffers for camera still shots */
     private lateinit var imageReader: ImageReader
 
+    private lateinit var imageReaderContinous: ImageReader
+
     /** [HandlerThread] where all camera operations run */
     private val cameraThread = HandlerThread("CameraThread").apply { start() }
 
@@ -125,6 +128,8 @@ class CameraFragment : Fragment() {
     /** [Handler] corresponding to [imageReaderThread] */
     private val imageReaderHandler = Handler(imageReaderThread.looper)
 
+    private val imageReaderHandlerContinous = Handler(imageReaderThread.looper)
+
     /** The [CameraDevice] that will be opened in this fragment */
     private lateinit var camera: CameraDevice
 
@@ -142,7 +147,17 @@ class CameraFragment : Fragment() {
         _fragmentCameraBinding = FragmentCameraBinding.inflate(inflater, container, false)
         return fragmentCameraBinding.root
     }
+    class ImageReaderCB : OnImageAvailableListener {
+        private  var callbakcCount: Int = 0
 
+        override fun onImageAvailable(reader: ImageReader?) {
+            Log.i(TAG, "Image reader callback called $callbakcCount")
+            var image = reader?.acquireLatestImage()
+            callbakcCount++
+            image?.close()
+        }
+
+    }
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -203,17 +218,23 @@ class CameraFragment : Fragment() {
         val size = characteristics.get(
                 CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
                 .getOutputSizes(args.pixelFormat).maxByOrNull { it.height * it.width }!!
+
         imageReader = ImageReader.newInstance(
                 size.width, size.height, args.pixelFormat, IMAGE_BUFFER_SIZE)
 
+        imageReaderContinous =  ImageReader.newInstance(
+            size.width, size.height, args.pixelFormat, IMAGE_BUFFER_SIZE)
+
+        imageReaderContinous.setOnImageAvailableListener(ImageReaderCB(), imageReaderHandlerContinous)
+
         // Creates list of Surfaces where the camera will output frames
-        val targets = listOf(fragmentCameraBinding.viewFinder.holder.surface, imageReader.surface)
+        val targets = listOf(fragmentCameraBinding.viewFinder.holder.surface, imageReaderContinous.surface)
 
         // Start a capture session using our open camera and list of Surfaces where frames will go
         session = createCaptureSession(camera, targets, cameraHandler)
 
         val captureRequest = camera.createCaptureRequest(
-                CameraDevice.TEMPLATE_PREVIEW).apply { addTarget(fragmentCameraBinding.viewFinder.holder.surface) }
+                CameraDevice.TEMPLATE_PREVIEW).apply { addTarget(imageReaderContinous.surface) }
 
         // This will keep sending the capture request as frequently as possible until the
         // session is torn down or session.stopRepeating() is called
