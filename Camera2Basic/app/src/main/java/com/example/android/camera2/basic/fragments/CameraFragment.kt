@@ -18,16 +18,9 @@ package com.example.android.camera2.basic.fragments
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color
-import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.CaptureResult
-import android.hardware.camera2.DngCreator
-import android.hardware.camera2.TotalCaptureResult
+import android.graphics.*
+import android.graphics.drawable.BitmapDrawable
+import android.hardware.camera2.*
 import android.media.Image
 import android.media.ImageReader
 import android.media.ImageReader.OnImageAvailableListener
@@ -36,11 +29,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.view.LayoutInflater
-import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.View
-import android.view.ViewGroup
+import android.util.Size
+import android.view.*
 import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.Fragment
@@ -49,28 +39,25 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
 import androidx.navigation.Navigation
 import androidx.navigation.fragment.navArgs
+import com.example.android.camera.utils.OrientationLiveData
 import com.example.android.camera.utils.computeExifOrientation
 import com.example.android.camera.utils.getPreviewOutputSize
-import com.example.android.camera.utils.OrientationLiveData
 import com.example.android.camera2.basic.CameraActivity
 import com.example.android.camera2.basic.R
 import com.example.android.camera2.basic.databinding.FragmentCameraBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.io.Closeable
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
+import java.io.*
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeoutException
-import java.util.Date
-import java.util.Locale
-import kotlin.RuntimeException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+
 
 class CameraFragment : Fragment() {
 
@@ -147,12 +134,69 @@ class CameraFragment : Fragment() {
         _fragmentCameraBinding = FragmentCameraBinding.inflate(inflater, container, false)
         return fragmentCameraBinding.root
     }
-    class ImageReaderCB : OnImageAvailableListener {
-        private  var callbakcCount: Int = 0
+
+    class ImageReaderCB(private var activity: CameraFragment, private var view: View, private var size: Size) : OnImageAvailableListener {
+        private var callbakcCount: Int = 0
+
+        fun imageToBitmap(image: Image, rotationDegrees: Float): Bitmap {
+
+            val bout: ByteBuffer = ByteBuffer.allocate(image.height * image.width * 2)
+            val y: ByteBuffer = image.planes[0].buffer
+            val cr: ByteBuffer = image.planes[1].buffer
+            val cb: ByteBuffer = image.planes[2].buffer
+            bout.put(y)
+            bout.put(cb)
+            bout.put(cr)
+
+            val yuvImage = YuvImage(
+                bout.array(),
+                ImageFormat.NV21, image.width, image.height, null
+            )
+            val out = ByteArrayOutputStream()
+
+            yuvImage.compressToJpeg(
+                Rect(
+                    0, 0,
+                    image.width, image.height
+                ), 90, out
+            )
+            val imageBytes: ByteArray = out.toByteArray()
+            val options = BitmapFactory.Options()
+            options.inMutable = true
+
+            val bm = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
+            var bitmap = bm
+
+            if (rotationDegrees != 0f) {
+                val matrix = Matrix()
+                matrix.postRotate(rotationDegrees)
+                val scaledBitmap = Bitmap.createScaledBitmap(
+                    bm,
+                    bm.width, bm.height, true
+                )
+                bitmap = Bitmap.createBitmap(
+                    scaledBitmap, 0, 0,
+                    scaledBitmap.width, scaledBitmap.height, matrix, true
+                )
+            }
+            return bitmap
+        }
 
         override fun onImageAvailable(reader: ImageReader?) {
             Log.i(TAG, "Image reader callback called $callbakcCount")
             var image = reader?.acquireLatestImage()
+            // Convert to JPEG and back to RGB. This will drop quality and slow
+            // but we skip the proper YUV->RGB conversion - since this is for
+            // demonstration purpose only
+            var bmp = imageToBitmap(image!!, 0F)
+
+            activity.activity?.runOnUiThread {
+
+                view.background = BitmapDrawable(bmp)
+                //view.draw(canvas)
+                view.invalidate()
+            }
+            view.invalidate()
             callbakcCount++
             image?.close()
         }
@@ -212,6 +256,7 @@ class CameraFragment : Fragment() {
      */
     private fun initializeCamera() = lifecycleScope.launch(Dispatchers.Main) {
         // Open the selected camera
+        fragmentCameraBinding.viewFinder.holder.surface
         camera = openCamera(cameraManager, args.cameraId, cameraHandler)
 
         // Initialize an image reader which will be used to capture still photos
@@ -225,7 +270,8 @@ class CameraFragment : Fragment() {
         imageReaderContinous =  ImageReader.newInstance(
             size.width, size.height, args.pixelFormat, IMAGE_BUFFER_SIZE)
 
-        imageReaderContinous.setOnImageAvailableListener(ImageReaderCB(), imageReaderHandlerContinous)
+
+        imageReaderContinous.setOnImageAvailableListener(ImageReaderCB(this@CameraFragment, fragmentCameraBinding.overlay, size), imageReaderHandlerContinous)
 
         // Creates list of Surfaces where the camera will output frames
         val targets = listOf(fragmentCameraBinding.viewFinder.holder.surface, imageReaderContinous.surface)
